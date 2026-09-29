@@ -66,17 +66,34 @@ struct xdma_aperture_ioctl {
 	int error;
 	unsigned long done;
 };
+//***************************************************************
+//****************** Ring Buffer Patch **************************
+struct xdma_ring {
+	void* 	ptr;
+	int 	val;
+};
 
+struct xdma_cdev;
+
+struct xdma_file_context {
+	struct xdma_cdev* xcdev;
+	struct xdma_ring* ring;
+};
+//****************** Ring Buffer Patch ***************************
+//****************************************************************
 
 /* IOCTL codes */
 
-#define IOCTL_XDMA_PERF_START   _IOW('q', 1, struct xdma_performance_ioctl *)
-#define IOCTL_XDMA_PERF_STOP    _IOW('q', 2, struct xdma_performance_ioctl *)
-#define IOCTL_XDMA_PERF_GET     _IOR('q', 3, struct xdma_performance_ioctl *)
-#define IOCTL_XDMA_ADDRMODE_SET _IOW('q', 4, int)
-#define IOCTL_XDMA_ADDRMODE_GET _IOR('q', 5, int)
-#define IOCTL_XDMA_ALIGN_GET    _IOR('q', 6, int)
-#define IOCTL_XDMA_APERTURE_R   _IOW('q', 7, struct xdma_aperture_ioctl *)
-#define IOCTL_XDMA_APERTURE_W   _IOW('q', 8, struct xdma_aperture_ioctl *)
-
+#define IOCTL_XDMA_PERF_START   	_IOW('q', 1, struct xdma_performance_ioctl *)
+#define IOCTL_XDMA_PERF_STOP    	_IOW('q', 2, struct xdma_performance_ioctl *)
+#define IOCTL_XDMA_PERF_GET     	_IOR('q', 3, struct xdma_performance_ioctl *)
+#define IOCTL_XDMA_ADDRMODE_SET 	_IOW('q', 4, int)
+#define IOCTL_XDMA_ADDRMODE_GET 	_IOR('q', 5, int)
+#define IOCTL_XDMA_ALIGN_GET    	_IOR('q', 6, int)
+#define IOCTL_XDMA_APERTURE_R   	_IOW('q', 7, struct xdma_aperture_ioctl *)
+#define IOCTL_XDMA_APERTURE_W   	_IOW('q', 8, struct xdma_aperture_ioctl *)
+#define IOCTL_XDMA_REGISTER_RING	_IOR('q', 0x40, int)
+#define IOCTL_XDMA_UNREGISTER_RING	_IOR('q', 0x41, int)
+#define IOCTL_XDMA_SUBMIT_SLOT		_IOR('q', 0x42, int)
+#define IOCTL_XDMA_WITHDRAW_SLOT	_IOR('q', 0x43, int)
 #endif /* _XDMA_IOCALLS_POSIX_H_ */

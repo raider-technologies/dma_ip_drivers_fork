@@ -1,0 +1,4 @@
+#ifndef __XDMA_RING_BUFFER_UAPI_H__
+#define __XDMA_RING_BUFFER_UAPI_H__
+
+#endif // __XDMA_RING_BUFFER_UAPI_H__

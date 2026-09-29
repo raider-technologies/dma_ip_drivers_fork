@@ -378,7 +378,12 @@ static ssize_t char_sgdma_read_write(struct file *file, const char __user *buf,
 {
 	int rv;
 	ssize_t res = 0;
-	struct xdma_cdev *xcdev = (struct xdma_cdev *)file->private_data;
+	//***************************************************************
+	//****************** Ring Buffer Patch **************************
+	struct xdma_file_context* ctx = (struct xdma_file_context *)file->private_data;
+	struct xdma_cdev *xcdev = ctx->xcdev;
+	//****************** Ring Buffer Patch ***************************
+	//****************************************************************
 	struct xdma_dev *xdev;
 	struct xdma_engine *engine;
 	struct xdma_io_cb cb;
@@ -844,7 +849,12 @@ static int ioctl_do_aperture_dma(struct xdma_engine *engine, unsigned long arg,
 static long char_sgdma_ioctl(struct file *file, unsigned int cmd,
 		unsigned long arg)
 {
-	struct xdma_cdev *xcdev = (struct xdma_cdev *)file->private_data;
+	//***************************************************************
+	//****************** Ring Buffer Patch **************************
+	struct xdma_file_context* ctx = (struct xdma_file_context *)file->private_data;
+	struct xdma_cdev *xcdev = ctx->xcdev;
+	//****************** Ring Buffer Patch **************************
+	//***************************************************************
 	struct xdma_dev *xdev;
 	struct xdma_engine *engine;
 
@@ -882,6 +892,18 @@ static long char_sgdma_ioctl(struct file *file, unsigned int cmd,
 	case IOCTL_XDMA_APERTURE_W:
 		rv = ioctl_do_aperture_dma(engine, arg, 1);
 		break;
+	case IOCTL_XDMA_REGISTER_RING:
+		rv = put_user(40, (int __user*) arg);
+		break;
+	case IOCTL_XDMA_UNREGISTER_RING:
+		rv = put_user(41, (int __user*) arg);
+		break;
+	case IOCTL_XDMA_SUBMIT_SLOT:
+		rv = put_user(42, (int __user*) arg);
+		break;
+	case IOCTL_XDMA_WITHDRAW_SLOT:
+		rv = put_user(43, (int __user*) arg);
+		break;
 	default:
 		dbg_perf("Unsupported operation\n");
 		rv = -EINVAL;
@@ -893,12 +915,18 @@ static long char_sgdma_ioctl(struct file *file, unsigned int cmd,
 
 static int char_sgdma_open(struct inode *inode, struct file *file)
 {
+	//***************************************************************
+	//****************** Ring Buffer Patch **************************
+	struct xdma_file_context* ctx;
 	struct xdma_cdev *xcdev;
 	struct xdma_engine *engine;
 
 	char_open(inode, file);
 
-	xcdev = (struct xdma_cdev *)file->private_data;
+	ctx = (struct xdma_file_context *)file->private_data;
+	xcdev = ctx->xcdev;
+	//****************** Ring Buffer Patch **************************
+	//***************************************************************
 	engine = xcdev->engine;
 
 	if (engine->streaming && engine->dir == DMA_FROM_DEVICE) {
@@ -914,7 +942,12 @@ static int char_sgdma_open(struct inode *inode, struct file *file)
 
 static int char_sgdma_close(struct inode *inode, struct file *file)
 {
-	struct xdma_cdev *xcdev = (struct xdma_cdev *)file->private_data;
+	//***************************************************************
+	//****************** Ring Buffer Patch **************************
+	struct xdma_file_context* ctx = (struct xdma_file_context *)file->private_data;
+	struct xdma_cdev *xcdev = ctx->xcdev;
+	//****************** Ring Buffer Patch ***************************
+	//****************************************************************
 	struct xdma_engine *engine;
 	int rv;
 

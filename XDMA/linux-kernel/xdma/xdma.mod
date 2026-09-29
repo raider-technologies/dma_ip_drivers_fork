@@ -1,0 +1,9 @@
+/home/sexton-raider/Desktop/dma_ip_drivers_fork/XDMA/linux-kernel/xdma/libxdma.o
+/home/sexton-raider/Desktop/dma_ip_drivers_fork/XDMA/linux-kernel/xdma/xdma_cdev.o
+/home/sexton-raider/Desktop/dma_ip_drivers_fork/XDMA/linux-kernel/xdma/cdev_ctrl.o
+/home/sexton-raider/Desktop/dma_ip_drivers_fork/XDMA/linux-kernel/xdma/cdev_events.o
+/home/sexton-raider/Desktop/dma_ip_drivers_fork/XDMA/linux-kernel/xdma/cdev_sgdma.o
+/home/sexton-raider/Desktop/dma_ip_drivers_fork/XDMA/linux-kernel/xdma/cdev_xvc.o
+/home/sexton-raider/Desktop/dma_ip_drivers_fork/XDMA/linux-kernel/xdma/cdev_bypass.o
+/home/sexton-raider/Desktop/dma_ip_drivers_fork/XDMA/linux-kernel/xdma/xdma_mod.o
+/home/sexton-raider/Desktop/dma_ip_drivers_fork/XDMA/linux-kernel/xdma/xdma_thread.o
