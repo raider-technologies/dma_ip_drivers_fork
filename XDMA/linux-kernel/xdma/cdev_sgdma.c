@@ -51,6 +51,7 @@ static void char_sgdma_unmap_user_buf(struct xdma_io_cb *cb, bool write);
 
 static void async_io_handler(unsigned long  cb_hndl, int err)
 {
+	struct xdma_file_context *ctx;
 	struct xdma_cdev *xcdev;
 	struct xdma_engine *engine;
 	struct xdma_dev *xdev;
@@ -66,7 +67,8 @@ static void async_io_handler(unsigned long  cb_hndl, int err)
 		return;
 	}
 
-	xcdev = (struct xdma_cdev *)caio->iocb->ki_filp->private_data;
+	ctx = (struct xdma_file_context *)caio->iocb->ki_filp->private_data;
+	xcdev = ctx->xcdev;
 	rv = xcdev_check(__func__, xcdev, 1);
 	if (rv < 0)
 		return;
@@ -445,8 +447,8 @@ static ssize_t char_sgdma_read(struct file *file, char __user *buf,
 static ssize_t cdev_aio_write(struct kiocb *iocb, const struct iovec *io,
 				unsigned long count, loff_t pos)
 {
-	struct xdma_cdev *xcdev = (struct xdma_cdev *)
-					iocb->ki_filp->private_data;
+	struct xdma_file_context *ctx = (struct xdma_file_context *)iocb->ki_filp->private_data;;
+	struct xdma_cdev *xcdev = ctx->xcdev;
 	struct cdev_async_io *caio;
 	struct xdma_engine *engine;
 	struct xdma_dev *xdev;
@@ -517,9 +519,8 @@ static ssize_t cdev_aio_write(struct kiocb *iocb, const struct iovec *io,
 static ssize_t cdev_aio_read(struct kiocb *iocb, const struct iovec *io,
 				unsigned long count, loff_t pos)
 {
-
-	struct xdma_cdev *xcdev = (struct xdma_cdev *)
-					iocb->ki_filp->private_data;
+	struct xdma_file_context *ctx = (struct xdma_file_context *) iocb->ki_filp->private_data;;
+	struct xdma_cdev *xcdev = ctx->xcdev;
 	struct cdev_async_io *caio;
 	struct xdma_engine *engine;
 	struct xdma_dev *xdev;
@@ -923,10 +924,7 @@ static int char_sgdma_open(struct inode *inode, struct file *file)
 
 	char_open(inode, file);
 
-	ctx = (struct xdma_file_context *)file->private_data;
-	xcdev = ctx->xcdev;
-	//****************** Ring Buffer Patch **************************
-	//***************************************************************
+	xcdev = (struct xdma_cdev *)file->private_data;
 	engine = xcdev->engine;
 
 	if (engine->streaming && engine->dir == DMA_FROM_DEVICE) {
@@ -936,6 +934,15 @@ static int char_sgdma_open(struct inode *inode, struct file *file)
 
 		engine->eop_flush = (file->f_flags & O_TRUNC) ? 1 : 0;
 	}
+
+	ctx = kzalloc(sizeof(*ctx), GFP_KERNEL);
+	if (!ctx) {
+		return -ENOMEM;
+	}
+	ctx->xcdev = xcdev;
+	ctx->ring = NULL;
+
+	file->private_data = ctx;
 
 	return 0;
 }
@@ -959,6 +966,11 @@ static int char_sgdma_close(struct inode *inode, struct file *file)
 
 	if (engine->streaming && engine->dir == DMA_FROM_DEVICE)
 		engine->device_open = 0;
+	
+	if (ctx->ring) {
+		// TODO: deal with a registered ring here
+	}
+	kfree(ctx);
 
 	return 0;
 }
