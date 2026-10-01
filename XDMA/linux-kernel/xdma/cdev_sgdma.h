@@ -85,6 +85,7 @@ struct xdma_ring_slot {
 	size_t					submitted_bytes;
 	size_t					withdraw_bytes;
 	unsigned long			submission_id;
+	int						completion_status;
 	bool					dma_mapped;
 };
 

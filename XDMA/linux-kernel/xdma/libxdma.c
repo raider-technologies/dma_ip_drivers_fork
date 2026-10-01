@@ -2922,6 +2922,7 @@ static void transfer_destroy(struct xdma_dev *xdev, struct xdma_transfer *xfer)
 	}
 }
 
+
 static int transfer_build(struct xdma_engine *engine,
 			struct xdma_request_cb *req, struct xdma_transfer *xfer,
 			unsigned int desc_max)
@@ -3588,10 +3589,10 @@ ssize_t xdma_xfer_slot_submit(struct xdma_engine* engine, struct xdma_ring_slot*
 				rv = transfer_abort(engine, xfer);
 				if (rv < 0) {
 					pr_err("Failed to stop engine\n");
-				// } else if (rv == 0) {
-				// 	rv = xdma_engine_stop(engine);
-				// 	if (rv < 0)
-				// 		pr_err("Failed to stop engine\n");
+				} else if (rv == 0) {
+					rv = xdma_engine_stop(engine);
+					if (rv < 0)
+						pr_err("Failed to stop engine\n");
 				}
 			}
 			spin_unlock_irqrestore(&engine->lock, flags);
@@ -3605,7 +3606,8 @@ ssize_t xdma_xfer_slot_submit(struct xdma_engine* engine, struct xdma_ring_slot*
 		}
 
 		engine->desc_used -= xfer->desc_num;
-		transfer_destroy(xdev, xfer);
+		// transfer_destroy(xdev, xfer);
+		xdma_desc_done(xfer->desc_virt, xfer->desc_num);
 
 		/* use multiple transfers per request if we could not fit
 		 * all data within single descriptor chain.

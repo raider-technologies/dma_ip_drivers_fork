@@ -942,7 +942,7 @@ static int ioctl_do_ring_registration(struct xdma_engine *engine, unsigned long 
 			goto slots_cleanup;
 		}
 		struct xdma_ring_slot* slot = &ring->slots[i];
-		slot->i = i; // set to negative 1 for fail index checking
+		slot->i = i; 
 		slot->dma_mapped = false;
 		struct xdma_io_cb* cb = &slot->io;
 		cb->buf = buf;
@@ -985,10 +985,6 @@ static int ring_destroy_locked(struct xdma_file_context *ctx) {
 	struct xdma_ring* ring = ctx->ring;
 	for (int i = 0; i < ring->slot_count; i++) {
 		struct xdma_ring_slot* slot = &ring->slots[i];
-		if (slot->state != USER_OWNED) return -EBUSY;
-	}
-	for (int i = 0; i < ring->slot_count; i++) {
-		struct xdma_ring_slot* slot = &ring->slots[i];
 		xdma_unregister_slot(slot, ctx->xcdev->xdev, ctx->xcdev->engine->dir);
 		char_sgdma_unmap_user_buf(&slot->io, (ctx->xcdev->engine->dir == DMA_TO_DEVICE));
 	}
@@ -1006,6 +1002,14 @@ static int ioctl_do_ring_unregistration(struct xdma_file_context* ctx) {
 		pr_info("Ring buffer not registered.\n");
 		rv = -ENOENT;
 		goto ring_unlock;
+	}
+	struct xdma_ring* ring = ctx->ring;
+	for (int i = 0; i < ring->slot_count; i++) {
+		struct xdma_ring_slot* slot = &ring->slots[i];
+		if (slot->state != USER_OWNED) {
+			rv = -EBUSY;
+			goto ring_unlock;
+		}
 	}
 	rv = ring_destroy_locked(ctx);
 ring_unlock:
@@ -1034,8 +1038,8 @@ static int ioctl_do_ring_slot_submit(struct xdma_engine *engine, unsigned long a
 		mutex_unlock(&ctx->ring_lock);
 		return -EINVAL;
 	}
-	if (slot_ioctl.slot_index < 0 || slot_ioctl.slot_index >= ctx->ring->slot_count) {
-		pr_info("Slot submit: Invalid slot id: %u out of %u slots.\n", slot_ioctl.xfer_bytes, ctx->ring->slot_count);
+	if (slot_ioctl.slot_index >= ctx->ring->slot_count) {
+		pr_info("Slot submit: Invalid slot id: %u out of %u slots.\n", slot_ioctl.slot_index, ctx->ring->slot_count);
 		mutex_unlock(&ctx->ring_lock);
 		return -EINVAL;
 	}
@@ -1064,6 +1068,7 @@ static int ioctl_do_ring_slot_submit(struct xdma_engine *engine, unsigned long a
 		slot->withdraw_bytes = res;
 		slot->state = FOR_WITHDRAW;
 	}
+	slot->completion_status = (res < 0) ? res : 0;
 	mutex_lock(&ctx->ring_lock);
 	ctx->ring->queued_slot_cnt++;
 	ctx->ring->withdraw_queue_tail[0] = slot->i;
@@ -1099,11 +1104,9 @@ static int ioctl_do_ring_slot_withdraw(unsigned long arg, struct xdma_file_conte
 	switch (slot->state)
 	{
 	case FOR_WITHDRAW:
-		slot_ioctl.status = 0;
 		slot_ioctl.xfer_bytes = slot->withdraw_bytes;
 		break;
 	case XFER_FAIL:
-		slot_ioctl.status = -ECANCELED;
 		slot_ioctl.xfer_bytes = 0;
 		break;
 	default:
@@ -1111,6 +1114,7 @@ static int ioctl_do_ring_slot_withdraw(unsigned long arg, struct xdma_file_conte
 		rv = -EFAULT;
 		goto release_ring;
 	}
+	slot_ioctl.status = slot->completion_status;
 	dma_sync_sg_for_cpu(&ctx->xcdev->xdev->pdev->dev, slot->io.sgt.sgl, slot->io.sgt.orig_nents, ctx->xcdev->engine->dir);
 	if (copy_to_user((void __user*)arg, &slot_ioctl, sizeof(struct xdma_ring_slot_ioctl))) {
 		pr_info("Failed to copy xdma_ring_ioctl to user space 0x%lx\n", arg);
@@ -1188,7 +1192,7 @@ static long char_sgdma_ioctl(struct file *file, unsigned int cmd,
 		rv = ioctl_do_ring_slot_withdraw(arg, ctx);
 		break;
 	default:
-		dbg_perf("Unsupported operation\n");
+		pr_info("Unsupported operation\n");
 		rv = -EINVAL;
 		break;
 	}
