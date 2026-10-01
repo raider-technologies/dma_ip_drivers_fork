@@ -917,11 +917,18 @@ static int ioctl_do_ring_registration(struct xdma_engine *engine, unsigned long 
 	ring->slot_bytes = ring_ioctl.slot_bytes;
 	ring->slot_count = ring_ioctl.slot_count;
 	ring->user_base = ring_ioctl.ptr;
+	ring->withdraw_queue = kcalloc(ring->slot_count, sizeof(unsigned int), GFP_KERNEL);
+	if (!ring->withdraw_queue) {
+		pr_info("Failed to allocate xdma ring withdraw queue.\n");
+		rv = -ENOMEM;
+		goto ring_cleanup;
+	}
+	ring->withdraw_queue_head = ring->withdraw_queue;
 	ring->slots = kcalloc(ring->slot_count, sizeof(struct xdma_ring_slot), GFP_KERNEL);
 	if (!ring->slots) {
 		pr_info("Failed to allocate xdma ring slots\n");
 		rv = -ENOMEM;
-		goto ring_cleanup;
+		goto queue_cleanup;
 	}
 
 	int write = (engine->dir == DMA_TO_DEVICE);
@@ -964,6 +971,8 @@ slots_cleanup:
 		char_sgdma_unmap_user_buf(&slot->io, write);
 	}
 	kfree(ring->slots);
+queue_cleanup:
+	kfree(ring->withdraw_queue);
 ring_cleanup:
 	kfree(ring);
 release_ring_lock:
@@ -982,6 +991,7 @@ static int ring_destroy_locked(struct xdma_file_context *ctx) {
 		xdma_unregister_slot(slot, ctx->xcdev->xdev, ctx->xcdev->engine->dir);
 		char_sgdma_unmap_user_buf(&slot->io, (ctx->xcdev->engine->dir == DMA_TO_DEVICE));
 	}
+	kfree(ring->withdraw_queue);
 	kfree(ring->slots);
 	kfree(ctx->ring);
 	ctx->ring = NULL;
@@ -1003,10 +1013,10 @@ ring_unlock:
 }
 
 static int ioctl_do_ring_slot_submit(struct xdma_engine *engine, unsigned long arg, struct xdma_file_context* ctx) {
-	// int rv;
+	int rv;
 	struct xdma_ring_slot_ioctl slot_ioctl;
 
-	if (copy_from_user(&slot_ioctl, (void __user*)arg, sizeof(struct xdma_ring_ioctl))) {
+	if (copy_from_user(&slot_ioctl, (void __user*)arg, sizeof(struct xdma_ring_slot_ioctl))) {
 		pr_info("Failed to copy xdma_ring_ioctl from user space 0x%lx\n", arg);
 		return -EFAULT;
 		// rv = -EFAULT;
@@ -1046,16 +1056,19 @@ static int ioctl_do_ring_slot_submit(struct xdma_engine *engine, unsigned long a
 	ssize_t res = 0;
 	int timeout = (engine->dir == DMA_TO_DEVICE) ? h2c_timeout * 1000 : c2h_timeout * 1000;
 	res = xdma_xfer_slot_submit(engine, slot, ctx->xcdev->xdev, timeout);
-	if (res > 0) {
-		slot->state = XFER_FAIL;
+	if (res < 0) {
+		slot->state = res;
+		slot->withdraw_bytes = 0;
+		rv = -1;
 	} else {
 		slot->withdraw_bytes = res;
 		slot->state = FOR_WITHDRAW;
+		rv = 0;
 	}
 	mutex_lock(&ctx->ring_lock);
 	ctx->ring->queued_slot_cnt++;
 	mutex_unlock(&ctx->ring_lock);
-	return res;
+	return rv;
 }
 
 static int ioctl_do_ring_slot_withdraw(unsigned long arg, struct xdma_file_context* ctx) {
@@ -1072,9 +1085,7 @@ static int ioctl_do_ring_slot_withdraw(unsigned long arg, struct xdma_file_conte
 		goto release_ring;
 	}
 	struct xdma_ring_slot* slot = &ctx->ring->slots[*ctx->ring->withdraw_queue_head];
-	if (++ctx->ring->withdraw_queue_head >= &ctx->ring->withdraw_queue[ctx->ring->slot_count])
-		ctx->ring->withdraw_queue_head = ctx->ring->withdraw_queue;
-	ctx->ring->queued_slot_cnt--;
+	
 	struct xdma_ring_slot_ioctl slot_ioctl;
 	slot_ioctl.slot_index = slot->i;
 	slot_ioctl.xfer_id = slot->submission_id;
@@ -1094,11 +1105,14 @@ static int ioctl_do_ring_slot_withdraw(unsigned long arg, struct xdma_file_conte
 		goto release_ring;
 	}
 	dma_sync_sg_for_cpu(&ctx->xcdev->xdev->pdev->dev, slot->io.sgt.sgl, slot->io.sgt.orig_nents, ctx->xcdev->engine->dir);
-	slot->state = USER_OWNED;
 	if (copy_to_user((void __user*)arg, &slot_ioctl, sizeof(struct xdma_ring_slot_ioctl))) {
 		pr_info("Failed to copy xdma_ring_ioctl to user space 0x%lx\n", arg);
 		rv = -EFAULT;
 	}
+	slot->state = USER_OWNED;
+	if (++ctx->ring->withdraw_queue_head >= &ctx->ring->withdraw_queue[ctx->ring->slot_count])
+		ctx->ring->withdraw_queue_head = ctx->ring->withdraw_queue;
+	ctx->ring->queued_slot_cnt--;
 	
 release_ring:
 	mutex_unlock(&ctx->ring_lock);
@@ -1203,6 +1217,7 @@ static int char_sgdma_open(struct inode *inode, struct file *file)
 		if (engine->device_open == 1) {
 			mutex_destroy(&ctx->ring_lock);
 			kfree(ctx);
+			spin_unlock(&engine->lock);
 			return -EBUSY;
 		}
 		engine->device_open = 1;
@@ -1246,8 +1261,10 @@ static int char_sgdma_close(struct inode *inode, struct file *file)
 		rv = -EINVAL;
 	}
 	mutex_unlock(&ctx->ring_lock);
-	mutex_destroy(&ctx->ring_lock);
-	kfree(ctx);
+	if (rv == 0) {
+		mutex_destroy(&ctx->ring_lock);
+		kfree(ctx);
+	}
 
 	return rv;
 }

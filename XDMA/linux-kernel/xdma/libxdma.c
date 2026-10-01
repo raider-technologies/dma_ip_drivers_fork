@@ -3506,7 +3506,6 @@ ssize_t xdma_xfer_slot_submit(struct xdma_engine* engine, struct xdma_ring_slot*
 			goto free_req;
 		}
 		xfer = &req->tfer[0];
-		xfer->flags = XFER_FLAG_NEED_UNMAP;
 
 		/* last transfer for the given request? */
 		nents -= xfer->desc_num;
@@ -3589,10 +3588,10 @@ ssize_t xdma_xfer_slot_submit(struct xdma_engine* engine, struct xdma_ring_slot*
 				rv = transfer_abort(engine, xfer);
 				if (rv < 0) {
 					pr_err("Failed to stop engine\n");
-				} else if (rv == 0) {
-					rv = xdma_engine_stop(engine);
-					if (rv < 0)
-						pr_err("Failed to stop engine\n");
+				// } else if (rv == 0) {
+				// 	rv = xdma_engine_stop(engine);
+				// 	if (rv < 0)
+				// 		pr_err("Failed to stop engine\n");
 				}
 			}
 			spin_unlock_irqrestore(&engine->lock, flags);
