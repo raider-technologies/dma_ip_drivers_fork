@@ -96,6 +96,7 @@ struct xdma_ring {
 	struct xdma_ring_slot*	slots;
 	unsigned int*			withdraw_queue;
 	unsigned int*			withdraw_queue_head;
+	unsigned int*			withdraw_queue_tail;
 };
 
 struct xdma_cdev;
