@@ -35,6 +35,7 @@
 #include "xdma_cdev.h"
 #include "cdev_sgdma.h"
 #include "xdma_thread.h"
+#include "xdma_ring_uapi.h"
 
 /* Module Parameters */
 unsigned int h2c_timeout = 10;
@@ -846,6 +847,111 @@ static int ioctl_do_aperture_dma(struct xdma_engine *engine, unsigned long arg,
 
 	return io.error;
 }
+
+static int ioctl_do_ring_registration(struct xdma_engine *engine, unsigned long arg, struct xdma_file_context* ctx) {
+	mutex_lock(&ctx->ring_lock);
+	if (ctx->ring) {
+		pr_info("Ring Buffer already registered\n");
+		return -EBUSY;
+	}
+
+	struct xdma_ring_ioctl ring_ioctl;
+	int rv;
+
+	if (copy_from_user(&ring_ioctl, (void __user*)arg, sizeof(struct xdma_ring_ioctl))) {
+		dbg_tfr("Failed to copy xdma_ring_ioctl from user space 0x%lx\n", arg);
+		return -EFAULT;
+	}
+	if (!ring_ioctl.slot_count || !ring_ioctl.slot_bytes) {
+		dbg_tfr("Ring buffer params not initilized.\n");
+		return -EINVAL;
+	}
+	if (ring_ioctl.ptr > ULONG_MAX) {
+		return -EINVAL;
+	}
+	unsigned long base = (unsigned long) ring_ioctl.ptr;
+	if (!IS_ALIGNED(base, PAGE_SIZE) || !IS_ALIGNED(ring_ioctl.slot_bytes, PAGE_SIZE)) {
+		return -EINVAL;
+	}
+	size_t total_bytes;
+	unsigned long end;
+	if (check_mul_overflow((size_t)ring_ioctl.slot_count, (size_t)ring_ioctl.slot_bytes, &total_bytes) ||
+		check_add_overflow(base, (unsigned long) total_bytes, &end)) {
+		return -EOVERFLOW;
+	}
+	if (!access_ok((void __user *)base, total_bytes)) {
+		return -EFAULT;
+	}
+	if (ring_ioctl.slot_count < 1) {
+		dbg_tfr("Ring buffer count of %u is less than 1.\n", ring_ioctl.slot_count);
+		return -EINVAL;
+	}
+	if (ring_ioctl.slot_bytes == 0) {
+		dbg_tfr("Ring buffer size cannot be 0.\n");
+		return -EINVAL;
+	}
+
+	struct xdma_ring* ring = kzalloc(sizeof(struct xdma_ring), GFP_KERNEL);
+	if (!ring) {
+		pr_info("Failed to allocate xdma ring\n");
+		return -ENOMEM;
+	}
+	ring->slot_bytes = ring_ioctl.slot_bytes;
+	ring->slot_count = ring_ioctl.slot_count;
+	ring->user_base = ring_ioctl.ptr;
+	ring->slots = kcalloc(ring->slot_count, sizeof(struct xdma_ring_slot), GFP_KERNEL);
+	if (!ring->slots) {
+		pr_info("Failed to allocate xdma ring slots\n");
+		rv = -ENOMEM;
+		goto ring_cleanup;
+	}
+
+	int write = (engine->dir == DMA_TO_DEVICE);
+	int prepared_slots = 0;
+	for (int i = 0; i < ring_ioctl.slot_count; i++) {
+		char __user* buf = (char __user*) (ring_ioctl.ptr + (size_t)i * ring_ioctl.slot_bytes);
+		rv = check_transfer_align(engine, buf, ring_ioctl.slot_bytes, 0, 1);
+		if (rv) {
+			pr_info("Invalid transfer alignment detected on ring buffer slot %u.\n", i);
+			goto slots_cleanup;
+		}
+		struct xdma_ring_slot* slot = &ring->slots[i];
+		slot->i = i; // set to negative 1 for fail index checking
+		slot->state = USER_OWNED;
+		struct xdma_io_cb* cb = &slot->io;
+		cb->buf = buf;
+		cb->len = ring_ioctl.slot_bytes;
+		cb->ep_addr = 0;
+		cb->write = write;
+		cb->req = NULL;
+		rv = char_sgdma_map_user_buf_to_sgl(cb, write);
+		if (rv < 0) {
+			goto slots_cleanup;
+		}
+		prepared_slots++;
+		rv = xdma_register_slot(slot, ctx->xcdev->xdev, engine->dir); // Returns non-zero on error
+		if (rv)
+			goto slots_cleanup;
+	}
+	ctx->ring = ring;
+	mutex_unlock(&ctx->ring_lock);
+	return 0;
+
+slots_cleanup:
+	for (int i = 0; i < prepared_slots; i++) {
+		struct xdma_ring_slot* slot = &ring->slots[i];
+		if (slot->i != -1) {
+			char_sgdma_unmap_user_buf(&slot->io, write);
+		} else {
+			break;
+		}
+	}
+	kfree(ring->slots);
+ring_cleanup:
+	kfree(ring);
+	mutex_unlock(&ctx->ring_lock);
+	return rv;
+}
 	
 static long char_sgdma_ioctl(struct file *file, unsigned int cmd,
 		unsigned long arg)
@@ -894,7 +1000,7 @@ static long char_sgdma_ioctl(struct file *file, unsigned int cmd,
 		rv = ioctl_do_aperture_dma(engine, arg, 1);
 		break;
 	case IOCTL_XDMA_REGISTER_RING:
-		rv = put_user(40, (int __user*) arg);
+		rv = ioctl_do_ring_registration(engine, arg, ctx);
 		break;
 	case IOCTL_XDMA_UNREGISTER_RING:
 		rv = put_user(41, (int __user*) arg);
@@ -941,6 +1047,7 @@ static int char_sgdma_open(struct inode *inode, struct file *file)
 	}
 	ctx->xcdev = xcdev;
 	ctx->ring = NULL;
+	mutex_init(&ctx->ring_lock);
 
 	file->private_data = ctx;
 

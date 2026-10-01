@@ -68,16 +68,35 @@ struct xdma_aperture_ioctl {
 };
 //***************************************************************
 //****************** Ring Buffer Patch **************************
+enum xdma_slot_state {
+	USER_OWNED			= 1,
+	SUBMITTED			= 2,
+	IN_USE				= 3,
+	FOR_WITHDRAW		= 4
+};
+
+struct xdma_ring_slot {
+	unsigned int 			i;
+	enum xdma_slot_state	state;
+	struct xdma_io_cb		io;
+	size_t					submitted_bytes;
+	size_t					withdraw_bytes;
+	unsigned long			submission_id;
+};
+
 struct xdma_ring {
-	void* 	ptr;
-	int 	val;
+	unsigned long 			user_base;
+	size_t					slot_bytes;
+	unsigned int			slot_count;
+	struct xdma_ring_slot*	slots;
 };
 
 struct xdma_cdev;
 
 struct xdma_file_context {
-	struct xdma_cdev* xcdev;
-	struct xdma_ring* ring;
+	struct xdma_cdev* 	xcdev;
+	struct xdma_ring* 	ring;
+	struct mutex 		ring_lock;
 };
 //****************** Ring Buffer Patch ***************************
 //****************************************************************
@@ -92,8 +111,4 @@ struct xdma_file_context {
 #define IOCTL_XDMA_ALIGN_GET    	_IOR('q', 6, int)
 #define IOCTL_XDMA_APERTURE_R   	_IOW('q', 7, struct xdma_aperture_ioctl *)
 #define IOCTL_XDMA_APERTURE_W   	_IOW('q', 8, struct xdma_aperture_ioctl *)
-#define IOCTL_XDMA_REGISTER_RING	_IOR('q', 0x40, int)
-#define IOCTL_XDMA_UNREGISTER_RING	_IOR('q', 0x41, int)
-#define IOCTL_XDMA_SUBMIT_SLOT		_IOR('q', 0x42, int)
-#define IOCTL_XDMA_WITHDRAW_SLOT	_IOR('q', 0x43, int)
 #endif /* _XDMA_IOCALLS_POSIX_H_ */

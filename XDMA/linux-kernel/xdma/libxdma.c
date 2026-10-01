@@ -3821,6 +3821,23 @@ unmap_sgl:
 
 }
 
+int xdma_register_slot(struct xdma_ring_slot* slot, struct xdma_dev* xdev, enum dma_data_direction dir) {
+	int nents;
+	struct sg_table *sgt = &slot->io.sgt;
+	struct scatterlist *sgl = sgt->sgl;
+#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 16, 0)
+		nents = pci_map_sg(xdev->pdev, sg, sgt->orig_nents, dir);
+#else
+		nents = dma_map_sg(&xdev->pdev->dev, sgl, sgt->orig_nents, dir);
+#endif
+	if (!nents) {
+		pr_info("map sgl failed, sgt 0x%p.\n", sgt);
+		return -EIO;
+	}
+	sgt->nents = nents;
+	return 0;
+}
+
 ssize_t xdma_xfer_submit_nowait(void *cb_hndl, void *dev_hndl, int channel,
 				bool write, u64 ep_addr, struct sg_table *sgt,
 				bool dma_mapped, int timeout_ms)

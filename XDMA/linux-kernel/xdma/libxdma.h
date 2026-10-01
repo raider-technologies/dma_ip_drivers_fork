@@ -697,4 +697,7 @@ int engine_service_poll(struct xdma_engine *engine, u32 expected_desc_count);
 ssize_t xdma_xfer_aperture(struct xdma_engine *engine, bool write, u64 ep_addr,
 			unsigned int aperture, struct sg_table *sgt,
 			bool dma_mapped, int timeout_ms);
+
+struct xdma_ring_slot;
+int xdma_register_slot(struct xdma_ring_slot* slot, struct xdma_dev* xdev, enum dma_data_direction dir);
 #endif /* XDMA_LIB_H */
