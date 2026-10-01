@@ -68,6 +68,7 @@ struct xdma_aperture_ioctl {
 };
 //***************************************************************
 //****************** Ring Buffer Patch **************************
+#ifdef __KERNEL__
 enum xdma_slot_state {
 	USER_OWNED			= 1,
 	SUBMITTED			= 2,
@@ -82,6 +83,7 @@ struct xdma_ring_slot {
 	size_t					submitted_bytes;
 	size_t					withdraw_bytes;
 	unsigned long			submission_id;
+	bool					dma_mapped;
 };
 
 struct xdma_ring {
@@ -98,6 +100,7 @@ struct xdma_file_context {
 	struct xdma_ring* 	ring;
 	struct mutex 		ring_lock;
 };
+#endif 
 //****************** Ring Buffer Patch ***************************
 //****************************************************************
 

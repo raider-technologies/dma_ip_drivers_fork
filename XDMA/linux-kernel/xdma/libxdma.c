@@ -3835,6 +3835,22 @@ int xdma_register_slot(struct xdma_ring_slot* slot, struct xdma_dev* xdev, enum 
 		return -EIO;
 	}
 	sgt->nents = nents;
+	slot->dma_mapped = true;
+
+	dma_sync_sg_for_cpu(&xdev->pdev->dev, sgl, sgt->orig_nents, dir);
+	slot->state = USER_OWNED;
+	return 0;
+}
+
+int xdma_unregister_slot(struct xdma_ring_slot* slot, struct xdma_dev* xdev, enum dma_data_direction dir) {
+	struct sg_table *sgt = &slot->io.sgt;
+#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 16, 0)
+	pci_unmap_sg(xdev->pdev, sgt->sgl, sgt->orig_nents, dir);
+#else
+	dma_unmap_sg(&xdev->pdev->dev, sgt->sgl, sgt->orig_nents, dir);
+#endif
+	sgt->nents = 0;
+	slot->dma_mapped = false;
 	return 0;
 }
 

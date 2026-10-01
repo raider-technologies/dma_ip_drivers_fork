@@ -284,7 +284,11 @@ static void char_sgdma_unmap_user_buf(struct xdma_io_cb *cb, bool write)
 		if (cb->pages[i]) {
 			if (!write)
 				set_page_dirty_lock(cb->pages[i]);
-			put_page(cb->pages[i]);
+			if (cb->dma_pin) {
+				unpin_user_page(cb->pages[i]);
+			} else {
+				put_page(cb->pages[i]);
+			}
 		} else
 			break;
 	}
@@ -296,11 +300,12 @@ static void char_sgdma_unmap_user_buf(struct xdma_io_cb *cb, bool write)
 	cb->pages = NULL;
 }
 
-static int char_sgdma_map_user_buf_to_sgl(struct xdma_io_cb *cb, bool write)
+static int char_sgdma_map_user_buf_to_sgl(struct xdma_io_cb *cb, bool write, bool persist)
 {
 	struct sg_table *sgt = &cb->sgt;
 	unsigned long len = cb->len;
 	void __user *buf = cb->buf;
+	cb->dma_pin = persist;
 	struct scatterlist *sg;
 	unsigned int pages_nr = (((unsigned long)buf + len + PAGE_SIZE - 1) -
 				 ((unsigned long)buf & PAGE_MASK))
@@ -323,8 +328,12 @@ static int char_sgdma_map_user_buf_to_sgl(struct xdma_io_cb *cb, bool write)
 		goto err_out;
 	}
 
-	rv = get_user_pages_fast((unsigned long)buf, pages_nr, 1/* write */,
-				cb->pages);
+	if (persist) {
+		rv = pin_user_pages((unsigned long)buf, pages_nr, FOLL_WRITE | FOLL_LONGTERM, cb->pages);
+	} else {
+		rv = get_user_pages_fast((unsigned long)buf, pages_nr, 1/* write */, cb->pages);
+	}
+	
 	/* No pages were pinned */
 	if (rv < 0) {
 		pr_err("unable to pin down %u user pages, %d.\n",
@@ -419,7 +428,7 @@ static ssize_t char_sgdma_read_write(struct file *file, const char __user *buf,
 	cb.len = count;
 	cb.ep_addr = (u64)*pos;
 	cb.write = write;
-	rv = char_sgdma_map_user_buf_to_sgl(&cb, write);
+	rv = char_sgdma_map_user_buf_to_sgl(&cb, write, false);
 	if (rv < 0)
 		return rv;
 
@@ -501,7 +510,7 @@ static ssize_t cdev_aio_write(struct kiocb *iocb, const struct iovec *io,
 			return rv;
 		}
 
-		rv = char_sgdma_map_user_buf_to_sgl(&caio->cb[i], true);
+		rv = char_sgdma_map_user_buf_to_sgl(&caio->cb[i], true, false);
 		if (rv < 0)
 			return rv;
 
@@ -574,7 +583,7 @@ static ssize_t cdev_aio_read(struct kiocb *iocb, const struct iovec *io,
 			return rv;
 		}
 
-		rv = char_sgdma_map_user_buf_to_sgl(&caio->cb[i], false);
+		rv = char_sgdma_map_user_buf_to_sgl(&caio->cb[i], false, false);
 		if (rv < 0)
 			return rv;
 
@@ -822,7 +831,7 @@ static int ioctl_do_aperture_dma(struct xdma_engine *engine, unsigned long arg,
 	cb.len = io.len;
 	cb.ep_addr = io.ep_addr;
 	cb.write = write;
-	rv = char_sgdma_map_user_buf_to_sgl(&cb, write);
+	rv = char_sgdma_map_user_buf_to_sgl(&cb, write, false);
 	if (rv < 0)
 		return rv;
 
@@ -849,52 +858,52 @@ static int ioctl_do_aperture_dma(struct xdma_engine *engine, unsigned long arg,
 }
 
 static int ioctl_do_ring_registration(struct xdma_engine *engine, unsigned long arg, struct xdma_file_context* ctx) {
+	int rv;
 	mutex_lock(&ctx->ring_lock);
 	if (ctx->ring) {
 		pr_info("Ring Buffer already registered\n");
-		return -EBUSY;
+		rv = -EBUSY;
+		goto release_ring_lock;
 	}
 
 	struct xdma_ring_ioctl ring_ioctl;
-	int rv;
 
 	if (copy_from_user(&ring_ioctl, (void __user*)arg, sizeof(struct xdma_ring_ioctl))) {
 		dbg_tfr("Failed to copy xdma_ring_ioctl from user space 0x%lx\n", arg);
-		return -EFAULT;
+		rv = -EFAULT;
+		goto release_ring_lock;
 	}
 	if (!ring_ioctl.slot_count || !ring_ioctl.slot_bytes) {
 		dbg_tfr("Ring buffer params not initilized.\n");
-		return -EINVAL;
+		rv = -EINVAL;
+		goto release_ring_lock;
 	}
 	if (ring_ioctl.ptr > ULONG_MAX) {
-		return -EINVAL;
+		rv = -EINVAL;
+		goto release_ring_lock;
 	}
 	unsigned long base = (unsigned long) ring_ioctl.ptr;
 	if (!IS_ALIGNED(base, PAGE_SIZE) || !IS_ALIGNED(ring_ioctl.slot_bytes, PAGE_SIZE)) {
-		return -EINVAL;
+		rv = -EINVAL;
+		goto release_ring_lock;
 	}
 	size_t total_bytes;
 	unsigned long end;
 	if (check_mul_overflow((size_t)ring_ioctl.slot_count, (size_t)ring_ioctl.slot_bytes, &total_bytes) ||
 		check_add_overflow(base, (unsigned long) total_bytes, &end)) {
-		return -EOVERFLOW;
+		rv = -EOVERFLOW;
+		goto release_ring_lock;
 	}
 	if (!access_ok((void __user *)base, total_bytes)) {
-		return -EFAULT;
-	}
-	if (ring_ioctl.slot_count < 1) {
-		dbg_tfr("Ring buffer count of %u is less than 1.\n", ring_ioctl.slot_count);
-		return -EINVAL;
-	}
-	if (ring_ioctl.slot_bytes == 0) {
-		dbg_tfr("Ring buffer size cannot be 0.\n");
-		return -EINVAL;
+		rv = -EFAULT;
+		goto release_ring_lock;
 	}
 
 	struct xdma_ring* ring = kzalloc(sizeof(struct xdma_ring), GFP_KERNEL);
 	if (!ring) {
 		pr_info("Failed to allocate xdma ring\n");
-		return -ENOMEM;
+		rv = -ENOMEM;
+		goto release_ring_lock;
 	}
 	ring->slot_bytes = ring_ioctl.slot_bytes;
 	ring->slot_count = ring_ioctl.slot_count;
@@ -917,14 +926,14 @@ static int ioctl_do_ring_registration(struct xdma_engine *engine, unsigned long 
 		}
 		struct xdma_ring_slot* slot = &ring->slots[i];
 		slot->i = i; // set to negative 1 for fail index checking
-		slot->state = USER_OWNED;
+		slot->dma_mapped = false;
 		struct xdma_io_cb* cb = &slot->io;
 		cb->buf = buf;
 		cb->len = ring_ioctl.slot_bytes;
 		cb->ep_addr = 0;
 		cb->write = write;
 		cb->req = NULL;
-		rv = char_sgdma_map_user_buf_to_sgl(cb, write);
+		rv = char_sgdma_map_user_buf_to_sgl(cb, write, true);
 		if (rv < 0) {
 			goto slots_cleanup;
 		}
@@ -932,6 +941,7 @@ static int ioctl_do_ring_registration(struct xdma_engine *engine, unsigned long 
 		rv = xdma_register_slot(slot, ctx->xcdev->xdev, engine->dir); // Returns non-zero on error
 		if (rv)
 			goto slots_cleanup;
+
 	}
 	ctx->ring = ring;
 	mutex_unlock(&ctx->ring_lock);
@@ -940,15 +950,36 @@ static int ioctl_do_ring_registration(struct xdma_engine *engine, unsigned long 
 slots_cleanup:
 	for (int i = 0; i < prepared_slots; i++) {
 		struct xdma_ring_slot* slot = &ring->slots[i];
-		if (slot->i != -1) {
-			char_sgdma_unmap_user_buf(&slot->io, write);
-		} else {
-			break;
-		}
+		if (slot->dma_mapped) 
+			xdma_unregister_slot(slot, ctx->xcdev->xdev, engine->dir);
+		char_sgdma_unmap_user_buf(&slot->io, write);
 	}
 	kfree(ring->slots);
 ring_cleanup:
 	kfree(ring);
+release_ring_lock:
+	mutex_unlock(&ctx->ring_lock);
+	return rv;
+}
+
+static int ioctl_do_ring_unregistration(struct xdma_engine *engine, unsigned long arg, struct xdma_file_context* ctx) {
+	int rv;
+	mutex_lock(&ctx->ring_lock);
+	if (!ctx->ring) {
+		pr_info("Ring buffer not registered.\n");
+		rv = -EBUSY;
+		goto ring_unlock;
+	}
+	struct xdma_ring* ring = ctx->ring;
+
+	for (int i = 0; i < ring->slot_count; i++) {
+		struct xdma_ring_slot* slot = &ring->slots[i];
+		xdma_unregister_slot(slot, ctx->xcdev->xdev, engine->dir);
+		char_sgdma_unmap_user_buf(&slot->io, (engine->dir == DMA_TO_DEVICE));
+	}
+	kfree(ring->slots);
+	kfree(ctx->ring);
+ring_unlock:
 	mutex_unlock(&ctx->ring_lock);
 	return rv;
 }
@@ -1003,7 +1034,7 @@ static long char_sgdma_ioctl(struct file *file, unsigned int cmd,
 		rv = ioctl_do_ring_registration(engine, arg, ctx);
 		break;
 	case IOCTL_XDMA_UNREGISTER_RING:
-		rv = put_user(41, (int __user*) arg);
+		rv = ioctl_do_ring_unregistration(engine, arg, ctx);
 		break;
 	case IOCTL_XDMA_SUBMIT_SLOT:
 		rv = put_user(42, (int __user*) arg);
@@ -1033,14 +1064,6 @@ static int char_sgdma_open(struct inode *inode, struct file *file)
 	xcdev = (struct xdma_cdev *)file->private_data;
 	engine = xcdev->engine;
 
-	if (engine->streaming && engine->dir == DMA_FROM_DEVICE) {
-		if (engine->device_open == 1)
-			return -EBUSY;
-		engine->device_open = 1;
-
-		engine->eop_flush = (file->f_flags & O_TRUNC) ? 1 : 0;
-	}
-
 	ctx = kzalloc(sizeof(*ctx), GFP_KERNEL);
 	if (!ctx) {
 		return -ENOMEM;
@@ -1048,6 +1071,14 @@ static int char_sgdma_open(struct inode *inode, struct file *file)
 	ctx->xcdev = xcdev;
 	ctx->ring = NULL;
 	mutex_init(&ctx->ring_lock);
+
+	if (engine->streaming && engine->dir == DMA_FROM_DEVICE) {
+		if (engine->device_open == 1)
+			return -EBUSY;
+		engine->device_open = 1;
+
+		engine->eop_flush = (file->f_flags & O_TRUNC) ? 1 : 0;
+	}
 
 	file->private_data = ctx;
 
