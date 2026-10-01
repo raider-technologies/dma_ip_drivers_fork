@@ -277,27 +277,28 @@ static void char_sgdma_unmap_user_buf(struct xdma_io_cb *cb, bool write)
 
 	sg_free_table(&cb->sgt);
 
-	if (!cb->pages || !cb->pages_nr)
-		return;
-
-	for (i = 0; i < cb->pages_nr; i++) {
-		if (cb->pages[i]) {
-			if (!write)
-				set_page_dirty_lock(cb->pages[i]);
-			if (cb->dma_pin) {
-				unpin_user_page(cb->pages[i]);
-			} else {
-				put_page(cb->pages[i]);
-			}
-		} else
-			break;
+	if (cb->pages) {
+		for (i = 0; i < cb->pages_nr; i++) {
+			if (cb->pages[i]) {
+				if (!write)
+					set_page_dirty_lock(cb->pages[i]);
+				if (cb->dma_pin) {
+					unpin_user_page(cb->pages[i]);
+				} else {
+					put_page(cb->pages[i]);
+				}
+			} else
+				break;
+		}
 	}
+	
 
 	if (i != cb->pages_nr)
 		pr_info("sgl pages %d/%u.\n", i, cb->pages_nr);
 
 	kfree(cb->pages);
 	cb->pages = NULL;
+	cb->pages_nr = 0;
 }
 
 static int char_sgdma_map_user_buf_to_sgl(struct xdma_io_cb *cb, bool write, bool persist)
@@ -329,7 +330,7 @@ static int char_sgdma_map_user_buf_to_sgl(struct xdma_io_cb *cb, bool write, boo
 	}
 
 	if (persist) {
-		rv = pin_user_pages((unsigned long)buf, pages_nr, FOLL_WRITE | FOLL_LONGTERM, cb->pages);
+		rv = pin_user_pages_fast((unsigned long)buf, pages_nr, FOLL_WRITE | FOLL_LONGTERM, cb->pages);
 	} else {
 		rv = get_user_pages_fast((unsigned long)buf, pages_nr, 1/* write */, cb->pages);
 	}
@@ -349,12 +350,11 @@ static int char_sgdma_map_user_buf_to_sgl(struct xdma_io_cb *cb, bool write, boo
 		goto err_out;
 	}
 
+	cb->pages_nr = pages_nr;
 	for (i = 1; i < pages_nr; i++) {
 		if (cb->pages[i - 1] == cb->pages[i]) {
-			pr_err("duplicate pages, %d, %d.\n",
-				i - 1, i);
+			pr_err("duplicate pages, %d, %d.\n", i - 1, i);
 			rv = -EFAULT;
-			cb->pages_nr = pages_nr;
 			goto err_out;
 		}
 	}
@@ -374,9 +374,9 @@ static int char_sgdma_map_user_buf_to_sgl(struct xdma_io_cb *cb, bool write, boo
 
 	if (len) {
 		pr_err("Invalid user buffer length. Cannot map to sgl\n");
-		return -EINVAL;
+		rv = -EINVAL;
+		goto err_out;
 	}
-	cb->pages_nr = pages_nr;
 	return 0;
 
 err_out:
@@ -962,6 +962,19 @@ release_ring_lock:
 	return rv;
 }
 
+static void ring_destroy_locked(struct xdma_file_context *ctx) {
+	struct xdma_ring* ring = ctx->ring;
+
+	for (int i = 0; i < ring->slot_count; i++) {
+		struct xdma_ring_slot* slot = &ring->slots[i];
+		xdma_unregister_slot(slot, ctx->xcdev->xdev, ctx->xcdev->engine->dir);
+		char_sgdma_unmap_user_buf(&slot->io, (ctx->xcdev->engine->dir == DMA_TO_DEVICE));
+	}
+	kfree(ring->slots);
+	kfree(ctx->ring);
+	ctx->ring = NULL;
+}
+
 static int ioctl_do_ring_unregistration(struct xdma_engine *engine, unsigned long arg, struct xdma_file_context* ctx) {
 	int rv;
 	mutex_lock(&ctx->ring_lock);
@@ -970,15 +983,8 @@ static int ioctl_do_ring_unregistration(struct xdma_engine *engine, unsigned lon
 		rv = -EBUSY;
 		goto ring_unlock;
 	}
-	struct xdma_ring* ring = ctx->ring;
-
-	for (int i = 0; i < ring->slot_count; i++) {
-		struct xdma_ring_slot* slot = &ring->slots[i];
-		xdma_unregister_slot(slot, ctx->xcdev->xdev, engine->dir);
-		char_sgdma_unmap_user_buf(&slot->io, (engine->dir == DMA_TO_DEVICE));
-	}
-	kfree(ring->slots);
-	kfree(ctx->ring);
+	ring_destroy_locked(ctx);
+	rv = 0;
 ring_unlock:
 	mutex_unlock(&ctx->ring_lock);
 	return rv;
@@ -1059,7 +1065,10 @@ static int char_sgdma_open(struct inode *inode, struct file *file)
 	struct xdma_cdev *xcdev;
 	struct xdma_engine *engine;
 
-	char_open(inode, file);
+	int rv = char_open(inode, file);
+	if (rv) {
+		return rv;
+	}
 
 	xcdev = (struct xdma_cdev *)file->private_data;
 	engine = xcdev->engine;
@@ -1073,8 +1082,11 @@ static int char_sgdma_open(struct inode *inode, struct file *file)
 	mutex_init(&ctx->ring_lock);
 
 	if (engine->streaming && engine->dir == DMA_FROM_DEVICE) {
-		if (engine->device_open == 1)
+		if (engine->device_open == 1) {
+			mutex_destroy(&ctx->ring_lock);
+			kfree(ctx);
 			return -EBUSY;
+		}
 		engine->device_open = 1;
 
 		engine->eop_flush = (file->f_flags & O_TRUNC) ? 1 : 0;
@@ -1105,9 +1117,12 @@ static int char_sgdma_close(struct inode *inode, struct file *file)
 	if (engine->streaming && engine->dir == DMA_FROM_DEVICE)
 		engine->device_open = 0;
 	
+	mutex_lock(&ctx->ring_lock);
 	if (ctx->ring) {
-		// TODO: deal with a registered ring here
+		ring_destroy_locked(ctx);
 	}
+	mutex_unlock(&ctx->ring_lock);
+	mutex_destroy(&ctx->ring_lock);
 	kfree(ctx);
 
 	return 0;
