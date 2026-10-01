@@ -11,7 +11,7 @@ struct xdma_ring_ioctl {
 };
 
 #define IOCTL_XDMA_REGISTER_RING	_IOW('q', 0x40, struct xdma_ring_ioctl)
-#define IOCTL_XDMA_UNREGISTER_RING	_IOR('q', 0x41, int)
+#define IOCTL_XDMA_UNREGISTER_RING	_IO('q', 0x41)
 #define IOCTL_XDMA_SUBMIT_SLOT		_IOR('q', 0x42, int)
 #define IOCTL_XDMA_WITHDRAW_SLOT	_IOR('q', 0x43, int)
 

@@ -273,7 +273,7 @@ static inline void xdma_io_cb_release(struct xdma_io_cb *cb)
 
 static void char_sgdma_unmap_user_buf(struct xdma_io_cb *cb, bool write)
 {
-	int i;
+	int i = 0;
 
 	sg_free_table(&cb->sgt);
 
@@ -869,21 +869,28 @@ static int ioctl_do_ring_registration(struct xdma_engine *engine, unsigned long 
 	struct xdma_ring_ioctl ring_ioctl;
 
 	if (copy_from_user(&ring_ioctl, (void __user*)arg, sizeof(struct xdma_ring_ioctl))) {
-		dbg_tfr("Failed to copy xdma_ring_ioctl from user space 0x%lx\n", arg);
+		pr_info("Failed to copy xdma_ring_ioctl from user space 0x%lx\n", arg);
 		rv = -EFAULT;
 		goto release_ring_lock;
 	}
+	pr_info("Register: ptr=%#llx slots=%u slot_bytes=%u page_size=%lu\n",
+        (unsigned long long)ring_ioctl.ptr,
+        ring_ioctl.slot_count,
+        ring_ioctl.slot_bytes,
+        (unsigned long)PAGE_SIZE);
 	if (!ring_ioctl.slot_count || !ring_ioctl.slot_bytes) {
-		dbg_tfr("Ring buffer params not initilized.\n");
+		pr_info("Ring buffer params not initilized.\n");
 		rv = -EINVAL;
 		goto release_ring_lock;
 	}
 	if (ring_ioctl.ptr > ULONG_MAX) {
+		pr_info("Registration ring pointer larger than ULONG MAX");
 		rv = -EINVAL;
 		goto release_ring_lock;
 	}
 	unsigned long base = (unsigned long) ring_ioctl.ptr;
 	if (!IS_ALIGNED(base, PAGE_SIZE) || !IS_ALIGNED(ring_ioctl.slot_bytes, PAGE_SIZE)) {
+		pr_info("register: base or slot size is not page aligned\n");
 		rv = -EINVAL;
 		goto release_ring_lock;
 	}
@@ -892,9 +899,11 @@ static int ioctl_do_ring_registration(struct xdma_engine *engine, unsigned long 
 	if (check_mul_overflow((size_t)ring_ioctl.slot_count, (size_t)ring_ioctl.slot_bytes, &total_bytes) ||
 		check_add_overflow(base, (unsigned long) total_bytes, &end)) {
 		rv = -EOVERFLOW;
+		pr_info("registration overflow check failed.\n");
 		goto release_ring_lock;
 	}
 	if (!access_ok((void __user *)base, total_bytes)) {
+		pr_info("registration access check failed.\n");
 		rv = -EFAULT;
 		goto release_ring_lock;
 	}
@@ -975,12 +984,12 @@ static void ring_destroy_locked(struct xdma_file_context *ctx) {
 	ctx->ring = NULL;
 }
 
-static int ioctl_do_ring_unregistration(struct xdma_engine *engine, unsigned long arg, struct xdma_file_context* ctx) {
+static int ioctl_do_ring_unregistration(struct xdma_file_context* ctx) {
 	int rv;
 	mutex_lock(&ctx->ring_lock);
 	if (!ctx->ring) {
 		pr_info("Ring buffer not registered.\n");
-		rv = -EBUSY;
+		rv = -ENOENT;
 		goto ring_unlock;
 	}
 	ring_destroy_locked(ctx);
@@ -993,6 +1002,8 @@ ring_unlock:
 static long char_sgdma_ioctl(struct file *file, unsigned int cmd,
 		unsigned long arg)
 {
+	pr_info("ioctl: received=%#x expected_register=%#x\n", cmd, (unsigned int)IOCTL_XDMA_REGISTER_RING);
+	// pr_info("ioctl: received=%#x expected_register=%#x\n", cmd, (unsigned int)IOCTL_XDMA_UNREGISTER_RING);
 	//***************************************************************
 	//****************** Ring Buffer Patch **************************
 	struct xdma_file_context* ctx = (struct xdma_file_context *)file->private_data;
@@ -1040,7 +1051,7 @@ static long char_sgdma_ioctl(struct file *file, unsigned int cmd,
 		rv = ioctl_do_ring_registration(engine, arg, ctx);
 		break;
 	case IOCTL_XDMA_UNREGISTER_RING:
-		rv = ioctl_do_ring_unregistration(engine, arg, ctx);
+		rv = ioctl_do_ring_unregistration(ctx);
 		break;
 	case IOCTL_XDMA_SUBMIT_SLOT:
 		rv = put_user(42, (int __user*) arg);
@@ -1082,14 +1093,16 @@ static int char_sgdma_open(struct inode *inode, struct file *file)
 	mutex_init(&ctx->ring_lock);
 
 	if (engine->streaming && engine->dir == DMA_FROM_DEVICE) {
+		spin_lock(&engine->lock);
 		if (engine->device_open == 1) {
 			mutex_destroy(&ctx->ring_lock);
 			kfree(ctx);
 			return -EBUSY;
 		}
 		engine->device_open = 1;
-
+		
 		engine->eop_flush = (file->f_flags & O_TRUNC) ? 1 : 0;
+		spin_unlock(&engine->lock);
 	}
 
 	file->private_data = ctx;
@@ -1114,8 +1127,11 @@ static int char_sgdma_close(struct inode *inode, struct file *file)
 
 	engine = xcdev->engine;
 
-	if (engine->streaming && engine->dir == DMA_FROM_DEVICE)
+	if (engine->streaming && engine->dir == DMA_FROM_DEVICE) {
+		spin_lock(&engine->lock);
 		engine->device_open = 0;
+		spin_unlock(&engine->lock);
+	}
 	
 	mutex_lock(&ctx->ring_lock);
 	if (ctx->ring) {
