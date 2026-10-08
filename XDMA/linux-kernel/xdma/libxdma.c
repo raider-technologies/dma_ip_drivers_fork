@@ -168,9 +168,7 @@ struct xdma_dev *xdev_find_by_pdev(struct pci_dev *pdev)
 	return NULL;
 }
 
-static inline int debug_check_dev_hndl(const char *fname, struct pci_dev *pdev,
-				       void *hndl)
-{
+inline int debug_check_dev_hndl(const char *fname, struct pci_dev *pdev, void *hndl) {
 	struct xdma_dev *xdev;
 
 	if (!pdev)
@@ -505,8 +503,7 @@ static void engine_status_dump(struct xdma_engine *engine)
  *
  * @return error value on failure, 0 otherwise
  */
-static int engine_status_read(struct xdma_engine *engine, bool clear, bool dump)
-{
+int engine_status_read(struct xdma_engine *engine, bool clear, bool dump) {
 	int rv = 0;
 
 	if (!engine) {
@@ -538,7 +535,7 @@ static int engine_status_read(struct xdma_engine *engine, bool clear, bool dump)
  * xdma_engine_stop() - stop an SG DMA engine
  *
  */
-static int xdma_engine_stop(struct xdma_engine *engine)
+int xdma_engine_stop(struct xdma_engine *engine)
 {
 	u32 w;
 
@@ -2402,9 +2399,7 @@ static void xdma_desc_set(struct xdma_desc *desc, dma_addr_t rc_bus_addr,
 /*
  * should hold the engine->lock;
  */
-static int transfer_abort(struct xdma_engine *engine,
-			  struct xdma_transfer *transfer)
-{
+int transfer_abort(struct xdma_engine *engine, struct xdma_transfer *transfer) {
 	struct xdma_transfer *head;
 
 	if (!engine) {
@@ -2446,9 +2441,7 @@ static int transfer_abort(struct xdma_engine *engine,
  *
  * Takes and releases the engine spinlock
  */
-static int transfer_queue(struct xdma_engine *engine,
-			  struct xdma_transfer *transfer)
-{
+int transfer_queue(struct xdma_engine *engine, struct xdma_transfer *transfer) {
 	int rv = 0;
 	struct xdma_transfer *transfer_started;
 	struct xdma_dev *xdev;
@@ -2901,7 +2894,7 @@ static int engine_init(struct xdma_engine *engine, struct xdma_dev *xdev,
 }
 
 /* transfer_destroy() - free transfer */
-static void transfer_destroy(struct xdma_dev *xdev, struct xdma_transfer *xfer)
+void transfer_destroy(struct xdma_dev *xdev, struct xdma_transfer *xfer)
 {
     /* free descriptors */
 	xdma_desc_done(xfer->desc_virt, xfer->desc_num);
@@ -2962,7 +2955,7 @@ static int transfer_build(struct xdma_engine *engine,
 }
 
 
-static int transfer_init(struct xdma_engine *engine,
+int transfer_init(struct xdma_engine *engine,
 			struct xdma_request_cb *req, struct xdma_transfer *xfer)
 {
 	unsigned int desc_max = min_t(unsigned int,
@@ -3068,8 +3061,7 @@ static void xdma_request_cb_dump(struct xdma_request_cb *req)
 }
 #endif
 
-static void xdma_request_free(struct xdma_request_cb *req)
-{
+void xdma_request_free(struct xdma_request_cb *req) {
 	if (((unsigned long)req) >= VMALLOC_START &&
 	    ((unsigned long)req) < VMALLOC_END)
 		vfree(req);
@@ -3097,9 +3089,7 @@ static struct xdma_request_cb *xdma_request_alloc(unsigned int sdesc_nr)
 	return req;
 }
 
-static struct xdma_request_cb *xdma_init_request(struct sg_table *sgt,
-						 u64 ep_addr)
-{
+struct xdma_request_cb *xdma_init_request(struct sg_table *sgt, u64 ep_addr) {
 	struct xdma_request_cb *req;
 	struct scatterlist *sg = sgt->sgl;
 	int max = sgt->nents;

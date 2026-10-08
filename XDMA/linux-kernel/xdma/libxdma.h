@@ -699,4 +699,14 @@ ssize_t xdma_xfer_aperture(struct xdma_engine *engine, bool write, u64 ep_addr,
 			unsigned int aperture, struct sg_table *sgt,
 			bool dma_mapped, int timeout_ms);
 
+inline int debug_check_dev_hndl(const char *fname, struct pci_dev *pdev, void *hndl);
+struct xdma_request_cb *xdma_init_request(struct sg_table *sgt, u64 ep_addr);
+void xdma_request_free(struct xdma_request_cb *req);
+int transfer_init(struct xdma_engine *engine,
+			struct xdma_request_cb *req, struct xdma_transfer *xfer);
+int transfer_queue(struct xdma_engine *engine, struct xdma_transfer *transfer);
+int transfer_abort(struct xdma_engine *engine, struct xdma_transfer *transfer);
+void transfer_destroy(struct xdma_dev *xdev, struct xdma_transfer *xfer);
+int engine_status_read(struct xdma_engine *engine, bool clear, bool dump);
+int xdma_engine_stop(struct xdma_engine *engine);
 #endif /* XDMA_LIB_H */

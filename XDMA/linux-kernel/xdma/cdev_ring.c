@@ -218,7 +218,7 @@ int ioctl_do_ring_slot_submit(struct xdma_engine *engine, unsigned long arg, str
 	// TODO: non-blocking transfer and support for xfer_bytes != slot_bytes
 	ssize_t res = 0;
 	int timeout = (engine->dir == DMA_TO_DEVICE) ? h2c_timeout * 1000 : c2h_timeout * 1000;
-	res = slot->submitted_bytes;//xdma_xfer_slot_submit(engine, slot, ctx->xcdev->xdev, timeout);
+	res = xdma_xfer_slot_submit(engine, slot, ctx->xcdev->xdev, timeout);
 	if (res < 0) {
 		slot->state = XFER_FAIL;
 		slot->withdraw_bytes = 0;
