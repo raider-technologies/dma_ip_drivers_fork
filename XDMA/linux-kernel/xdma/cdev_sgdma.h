@@ -66,50 +66,13 @@ struct xdma_aperture_ioctl {
 	int error;
 	unsigned long done;
 };
-//***************************************************************
-//****************** Ring Buffer Patch **************************
-// #ifdef __KERNEL__
-enum xdma_slot_state {
-	USER_OWNED			= 1,
-	SUBMITTED			= 2,
-	IN_USE				= 3,
-	FOR_WITHDRAW		= 4,
-	XFER_FAIL			= 5
-};
 
-struct xdma_ring_slot {
-	unsigned int 			i;
-	enum xdma_slot_state	state;
-	struct xdma_io_cb		io;
-	// struct mutex			slot_lock;
-	size_t					submitted_bytes;
-	size_t					withdraw_bytes;
-	unsigned long			submission_id;
-	int						completion_status;
-	bool					dma_mapped;
-};
+int check_transfer_align(struct xdma_engine *engine,
+	const char __user *buf, size_t count, loff_t pos, int sync);
+int char_sgdma_map_user_buf_to_sgl(struct xdma_io_cb *cb, bool write, bool persist);
+void char_sgdma_unmap_user_buf(struct xdma_io_cb *cb, bool write);
 
-struct xdma_ring {
-	unsigned long 			user_base;
-	size_t					slot_bytes;
-	unsigned int			slot_count;
-	unsigned int			queued_slot_cnt;
-	struct xdma_ring_slot*	slots;
-	unsigned int*			withdraw_queue;
-	unsigned int*			withdraw_queue_head;
-	unsigned int*			withdraw_queue_tail;
-};
 
-struct xdma_cdev;
-
-struct xdma_file_context {
-	struct xdma_cdev* 	xcdev;
-	struct xdma_ring* 	ring;
-	struct mutex 		ring_lock;
-};
-// #endif 
-//****************** Ring Buffer Patch ***************************
-//****************************************************************
 
 /* IOCTL codes */
 

@@ -35,6 +35,8 @@ MODULE_INFO(retpoline, "Y");
 
 static const char ____versions[]
 __used __section("__versions") =
+	"\x1c\x00\x00\x00\x42\xdc\x86\xc3"
+	"pin_user_pages_fast\0"
 	"\x18\x00\x00\x00\xfd\xe1\xe8\x87"
 	"pci_save_state\0\0"
 	"\x14\x00\x00\x00\x3b\x4a\x51\xc1"
@@ -73,6 +75,8 @@ __used __section("__versions") =
 	"finish_wait\0"
 	"\x18\x00\x00\x00\xf1\x40\xce\x42"
 	"class_destroy\0\0\0"
+	"\x1c\x00\x00\x00\x7c\xc3\x3d\x64"
+	"dma_sync_sg_for_cpu\0"
 	"\x20\x00\x00\x00\x0a\xe0\x02\xad"
 	"__pci_register_driver\0\0\0"
 	"\x18\x00\x00\x00\x80\x30\x79\x8f"
@@ -179,8 +183,12 @@ __used __section("__versions") =
 	"pci_iounmap\0"
 	"\x1c\x00\x00\x00\x19\x4a\x2f\x2f"
 	"pci_restore_state\0\0\0"
+	"\x20\x00\x00\x00\x23\x5f\xfc\x02"
+	"dma_sync_sg_for_device\0\0"
 	"\x10\x00\x00\x00\xad\x64\xb7\xdc"
 	"memset\0\0"
+	"\x18\x00\x00\x00\xca\x94\xa3\x9d"
+	"unpin_user_page\0"
 	"\x18\x00\x00\x00\x9c\xea\xe1\x1a"
 	"pci_set_master\0\0"
 	"\x14\x00\x00\x00\xd5\xe3\x7d\x01"
@@ -322,4 +330,4 @@ MODULE_ALIAS("pci:v000010EEd00002808sv*sd*bc*sc*i*");
 MODULE_ALIAS("pci:v00001D0Fd0000F000sv*sd*bc*sc*i*");
 MODULE_ALIAS("pci:v00001D0Fd0000F001sv*sd*bc*sc*i*");
 
-MODULE_INFO(srcversion, "342F49C1FD0E6E52C3A58D0");
+MODULE_INFO(srcversion, "5721080F87B3457053C64A5");

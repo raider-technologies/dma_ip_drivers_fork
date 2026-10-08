@@ -7,3 +7,5 @@
 /home/sexton-raider/Desktop/dma_ip_drivers_fork/XDMA/linux-kernel/xdma/cdev_bypass.o
 /home/sexton-raider/Desktop/dma_ip_drivers_fork/XDMA/linux-kernel/xdma/xdma_mod.o
 /home/sexton-raider/Desktop/dma_ip_drivers_fork/XDMA/linux-kernel/xdma/xdma_thread.o
+/home/sexton-raider/Desktop/dma_ip_drivers_fork/XDMA/linux-kernel/xdma/cdev_ring.o
+/home/sexton-raider/Desktop/dma_ip_drivers_fork/XDMA/linux-kernel/xdma/xdma_ring.o
