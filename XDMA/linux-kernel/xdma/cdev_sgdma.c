@@ -858,7 +858,7 @@ static int ioctl_do_aperture_dma(struct xdma_engine *engine, unsigned long arg,
 static long char_sgdma_ioctl(struct file *file, unsigned int cmd,
 		unsigned long arg)
 {
-	pr_info("ioctl: received=%#x expected_register=%#x\n", cmd, (unsigned int)IOCTL_XDMA_REGISTER_RING);
+	// pr_info("ioctl: received=%#x expected_register=%#x\n", cmd, (unsigned int)IOCTL_XDMA_REGISTER_RING);
 	// pr_info("ioctl: received=%#x expected_register=%#x\n", cmd, (unsigned int)IOCTL_XDMA_UNREGISTER_RING);
 	//***************************************************************
 	//****************** Ring Buffer Patch **************************

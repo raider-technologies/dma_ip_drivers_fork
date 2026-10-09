@@ -24,7 +24,7 @@ int xdma_register_slot(struct xdma_ring_slot* slot, struct xdma_dev* xdev, enum 
 		nents = dma_map_sg(&xdev->pdev->dev, sgl, sgt->orig_nents, dir);
 #endif
 	if (!nents) {
-		pr_info("map sgl failed, sgt 0x%p.\n", sgt);
+		pr_debug("map sgl failed, sgt 0x%p.\n", sgt);
 		return -EIO;
 	}
 	sgt->nents = nents;
@@ -76,7 +76,7 @@ ssize_t xdma_xfer_slot_submit(struct xdma_engine* engine, struct xdma_ring_slot*
 	}
 
 	if (xdma_device_flag_check(xdev, XDEV_FLAG_OFFLINE)) {
-		pr_info("xdev 0x%p, offline.\n", xdev);
+		pr_debug("xdev 0x%p, offline.\n", xdev);
 		return -EBUSY;
 	}
 
@@ -122,7 +122,7 @@ ssize_t xdma_xfer_slot_submit(struct xdma_engine* engine, struct xdma_ring_slot*
 		rv = transfer_queue(engine, xfer);
 		if (rv < 0) {
 			mutex_unlock(&engine->desc_lock);
-			pr_info("unable to submit %s, %d.\n", engine->name, rv);
+			pr_debug("unable to submit %s, %d.\n", engine->name, rv);
 			goto unmap_sgl;
 		}
 
@@ -164,7 +164,7 @@ ssize_t xdma_xfer_slot_submit(struct xdma_engine* engine, struct xdma_ring_slot*
 
 			break;
 		case TRANSFER_STATE_FAILED:
-			pr_info("xfer 0x%p,%u, failed, ep 0x%llx.\n", xfer,
+			pr_debug("xfer 0x%p,%u, failed, ep 0x%llx.\n", xfer,
 				xfer->len, req->ep_addr - xfer->len);
 			spin_unlock_irqrestore(&engine->lock, flags);
 
@@ -176,7 +176,7 @@ ssize_t xdma_xfer_slot_submit(struct xdma_engine* engine, struct xdma_ring_slot*
 			break;
 		default:
 			/* transfer can still be in-flight */
-			pr_info("xfer 0x%p,%u, s 0x%x timed out, ep 0x%llx.\n",
+			pr_debug("xfer 0x%p,%u, s 0x%x timed out, ep 0x%llx.\n",
 				xfer, xfer->len, xfer->state, req->ep_addr);
 			rv = engine_status_read(engine, 0, 1);
 			if (rv < 0) {
